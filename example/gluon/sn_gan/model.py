@@ -20,15 +20,16 @@
 # https://github.com/apache/incubator-mxnet/blob/master/example/gluon/dc_gan/dcgan.py
 
 import mxnet as mx
-from mxnet import nd
+from mxnet import nd, sym
 from mxnet import gluon, autograd
-from mxnet.gluon import Block
+from mxnet.gluon import Block, nn
+from mxnet.gluon.block import HybridBlock
 
 
 EPSILON = 1e-08
 POWER_ITERATION = 1
 
-class SNConv2D(Block):
+class SNConv2D(HybridBlock):
     """ Customized Conv2D to feed the conv with the weight that we apply spectral normalization """
 
     def __init__(self, num_filter, kernel_size,
@@ -46,49 +47,41 @@ class SNConv2D(Block):
         self.ctx = ctx
 
         with self.name_scope():
-            # init the weight
-            self.weight = self.params.get('weight', shape=(
-                num_filter, in_channels, kernel_size, kernel_size))
-            self.u = self.params.get(
-                'u', init=mx.init.Normal(), shape=(1, num_filter))
+            self.u = self.params.get_constant('u', value=mx.ndarray.random.normal(shape=(1, num_filter)))
+
+        self.output = nn.Conv2D(num_filter, kernel_size, strides, padding, in_channels=in_channels, use_bias=False)
+
 
     def _spectral_norm(self):
         """ spectral normalization """
-        w = self.params.get('weight').data(self.ctx)
-        w_mat = nd.reshape(w, [w.shape[0], -1])
+        w = self.output.weight.var()
+        w_mat = sym.reshape(w, [self.num_filter, -1])
 
-        _u = self.u.data(self.ctx)
         _v = None
 
         for _ in range(POWER_ITERATION):
-            _v = nd.L2Normalization(nd.dot(_u, w_mat))
-            _u = nd.L2Normalization(nd.dot(_v, w_mat.T))
+            _v = sym.L2Normalization(sym.dot(self.u.var(), w_mat))
+            self.u = sym.L2Normalization(sym.dot(_v, sym.transpose(w_mat)))
 
-        sigma = nd.sum(nd.dot(_u, w_mat) * _v)
-        if sigma == 0.:
-            sigma = EPSILON
+        sigma = sym.sum(sym.dot(self.u.var(), w_mat) * _v)
+        sigma = sym.where(sigma.__eq__(0.), EPSILON * sym.ones(1), sigma)
 
-        with autograd.pause():
-            self.u.set_data(_u)
+        w = w / sigma
+        self.output.weight = w
+        
+        return
+# weight not updating???
 
-        return w / sigma
-
-    def forward(self, x):
+    def hybrid_forward(self, F, x, u):#, weight):
         # x shape is batch_size x in_channels x height x width
-        return nd.Convolution(
-            data=x,
-            weight=self._spectral_norm(),
-            kernel=(self.kernel_size, self.kernel_size),
-            pad=(self.padding, self.padding),
-            stride=(self.strides, self.strides),
-            num_filter=self.num_filter,
-            no_bias=True
-        )
+        self._spectral_norm
+        return self.output(x)#, weight=self._spectral_norm)
+
 
 
 def get_generator():
     """ construct and return generator """
-    g_net = gluon.nn.Sequential()
+    g_net = gluon.nn.HybridSequential()
     with g_net.name_scope():
 
         g_net.add(gluon.nn.Conv2DTranspose(
@@ -119,7 +112,7 @@ def get_generator():
 
 def get_descriptor(ctx):
     """ construct and return descriptor """
-    d_net = gluon.nn.Sequential()
+    d_net = gluon.nn.HybridSequential()
     with d_net.name_scope():
 
         d_net.add(SNConv2D(num_filter=64, kernel_size=4, strides=2, padding=1, in_channels=3, ctx=ctx))

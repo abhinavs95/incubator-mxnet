@@ -89,6 +89,10 @@ train_data = get_training_data(opt.batch_size)
 g_net = get_generator()
 d_net = get_descriptor(CTX)
 
+# hybridize
+g_net.hybridize()
+d_net.hybridize()
+
 # define loss function
 loss = gluon.loss.SigmoidBinaryCrossEntropyLoss()
 
