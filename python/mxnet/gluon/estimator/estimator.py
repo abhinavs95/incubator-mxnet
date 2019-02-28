@@ -73,15 +73,6 @@ class Estimator(object):
             # only record the latest loss numbers after each batch
             self.train_stats['batch_' + loss.name] = 0.
 
-        # TODO：discuss whether to 1) hide trainer logic from user 2) user has to initialize net and trainer before estimator
-        # initialize the net if no initializer specified
-        if not self.initializer:
-            # no force reinitialize in case net is already initialized outside fit method
-            self.net.initialize(init=init.Xavier(), ctx=ctx, force_reinit=False)
-        else:
-            # initialize with user specified initializer
-            self.net.initialize(init=self.initializer, ctx=ctx, force_reinit=True)
-
         if isinstance(ctx, Context):
             self.ctx = [ctx]
         if not ctx:
@@ -90,6 +81,17 @@ class Estimator(object):
                 self.ctx = [context.gpu(0)]
             else:
                 self.ctx = [context.cpu()]
+
+        # TODO：discuss whether to 1) hide trainer logic from user 2) user has to initialize net and trainer before estimator
+        # initialize the net if no initializer specified
+        if not self.initializer:
+            # no force reinitialize in case net is already initialized outside fit method
+            self.net.initialize(init=init.Xavier(), ctx=self.ctx, force_reinit=False)
+        else:
+            # initialize with user specified initializer
+            self.net.initialize(init=self.initializer, ctx=self.ctx, force_reinit=True)
+
+
         if isinstance(trainers, gluon.Trainer):
             self.trainers = [trainers]
         else:
