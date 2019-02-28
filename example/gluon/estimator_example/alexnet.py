@@ -20,8 +20,8 @@ def parse_args():
                         help='learning rate. default is 0.001')
     parser.add_argument('-j', '--num-workers', default=None, type=int,
                         help='number of preprocessing workers')
-    parser.add_argument('--num-gpus', type=int, default=0,
-                        help='number of gpus to use.')
+    parser.add_argument('--num-gpus', type=int, default=None,
+                        help='number of gpus to use. enter 0 for cpu')
     opt = parser.parse_args()
     return opt
 
@@ -93,6 +93,8 @@ def main():
     lr = opt.lr
     num_workers = opt.num_workers
     num_gpus = opt.num_gpus
+    if num_gpus is None:
+        num_gpus = len(mx.test_utils.list_gpus())
     batch_size *= max(1, num_gpus)
     context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
 
@@ -102,6 +104,7 @@ def main():
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
     acc = mx.metric.Accuracy()
 
+    net.hybridize()
     net.initialize(ctx=context)
     trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': lr})
     est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer, ctx=context)
