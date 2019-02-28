@@ -75,12 +75,12 @@ class Estimator(object):
 
         if isinstance(ctx, Context):
             self.ctx = [ctx]
+        else:
+            if isinstance(ctx, list) and isinstance(ctx[0], Context):
+                self.ctx = ctx
         if not ctx:
-            if context.num_gpus() > 0:
-                # only use 1 GPU by default
-                self.ctx = [context.gpu(0)]
-            else:
-                self.ctx = [context.cpu()]
+            num_gpus = len(mx.test_utils.list_gpus())
+            self.ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
 
         # TODO：discuss whether to 1) hide trainer logic from user 2) user has to initialize net and trainer before estimator
         # initialize the net if no initializer specified
