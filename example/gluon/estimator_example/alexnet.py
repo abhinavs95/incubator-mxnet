@@ -71,9 +71,9 @@ train_data, test_data = load_data_fashion_mnist(batch_size, resize=224)
 loss = gluon.loss.SoftmaxCrossEntropyLoss()
 acc = mx.metric.Accuracy()
 print(net.params)
-net.initialize()
-trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': 0.001})
-est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer)
+#net.initialize()
+#trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': 0.001})
+est = estimator.Estimator(net=net, loss=loss, metrics=acc)#, trainers=trainer)
 est.fit(train_data=train_data, epochs=5)
 
 # with custom logging that writes to file
