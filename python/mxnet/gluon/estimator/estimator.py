@@ -26,6 +26,7 @@ from .event_handler import LoggingHandler
 from ... import *
 from ... import gluon, autograd
 from ...metric import EvalMetric, Loss
+import copy
 
 __all__ = ['Estimator']
 
@@ -37,39 +38,48 @@ class Estimator(object):
     """
 
     def __init__(self, net,
+                 trainers,
                  loss=None,
                  metrics=None,
-                 initializer=None,
-                 trainers=None,
                  ctx=None):
 
         self.net = net
+
         if isinstance(loss, gluon.loss.Loss):
             self.loss = [loss]
         else:
             self.loss = loss or []
-        if isinstance(metrics, EvalMetric):
-            self.metrics = [metrics]
-        else:
-            self.metrics = metrics or []
+        if not self.loss:
+            warnings.warn("No loss specified, default SoftmaxCrossEntropyLoss() is used.")
+            self.loss = [gluon.loss.SoftmaxCrossEntropyLoss()]
 
-        self.initializer = initializer
+        if isinstance(metrics, EvalMetric):
+            self.train_metrics = [metrics]
+        else:
+            self.train_metrics = metrics or []
+        self.test_metrics = copy.deepcopy(self.train_metrics)
+
         # store training statistics
         self.train_stats = {}
         self.train_stats['epochs'] = []
         self.train_stats['learning_rate'] = []
         # time used for each epoch
         self.train_stats['step'] = ''
-        for metric in self.metrics:
+        for metric in self.train_metrics:
             # record a history of metrics over each epoch
             self.train_stats['train_' + metric.name] = []
             # only record the latest metric numbers after each batch
             self.train_stats['batch_' + metric.name] = 0.
-        self.loss_metrics = []
+        for metric in self.test_metrics:
+            self.train_stats['test_' + metric.name] = []
+        self.train_loss_metrics = []
+        self.test_loss_metrics = []
         # using the metric wrapper for loss to record loss value
         for loss in self.loss:
-            self.loss_metrics.append(Loss(loss.name))
+            self.train_loss_metrics.append(Loss(loss.name))
+            self.test_loss_metrics.append(Loss(loss.name))
             self.train_stats['train_' + loss.name] = []
+            self.train_stats['test_' + loss.name] = []
             # only record the latest loss numbers after each batch
             self.train_stats['batch_' + loss.name] = 0.
 
@@ -82,28 +92,38 @@ class Estimator(object):
             num_gpus = len(mx.test_utils.list_gpus())
             self.ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
 
-        # TODO：discuss whether to 1) hide trainer logic from user 2) user has to initialize net and trainer before estimator
-        # initialize the net if no initializer specified
-        if not self.initializer:
-            # no force reinitialize in case net is already initialized outside fit method
-            self.net.initialize(init=init.Xavier(), ctx=self.ctx, force_reinit=False)
-        else:
-            # initialize with user specified initializer
-            self.net.initialize(init=self.initializer, ctx=self.ctx, force_reinit=True)
-
-
         if isinstance(trainers, gluon.Trainer):
             self.trainers = [trainers]
         else:
             self.trainers = trainers or []
         if not self.trainers:
-            warnings.warn("No trainer specified, default SGD optimizer with learning rate 0.001 is used.")
-            self.trainers = [gluon.Trainer(self.net.collect_params(), 'sgd', {'learning_rate': 0.001})]
+            raise ValueError("No trainer specified, trainer is a required argument.")
 
-    def _batch_fn(self, batch, ctx):
-        data = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0)
-        label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0)
+    def _batch_fn(self, batch):
+        data = gluon.utils.split_and_load(batch[0], ctx_list=self.ctx, batch_axis=0)
+        label = gluon.utils.split_and_load(batch[1], ctx_list=self.ctx, batch_axis=0)
         return data, label
+
+    def _test(self, val_data):
+        for metric in self.test_metrics + self.test_loss_metrics:
+            metric.reset()
+
+        for i, batch in enumerate(val_data):
+            data, label = self._batch_fn(batch)
+            pred = [self.net(x) for x in data]
+            losses = []
+            for loss in self.loss:
+                losses.append([loss(y_hat, y) for y_hat, y in zip(pred, label)])
+
+            # update metrics
+            for metric in self.test_metrics:
+                metric.update(label, pred)
+            for loss, loss_metric, in zip(losses, self.test_loss_metrics):
+                loss_metric.update(0, [l for l in loss])
+
+        for metric in self.test_metrics + self.test_loss_metrics:
+            self.train_stats['test_' + metric.name].append(metric.get()[1])
+
 
     def fit(self, train_data,
             val_data=None,
@@ -118,7 +138,6 @@ class Estimator(object):
         if not event_handlers:
             event_handlers.append(LoggingHandler(self))
 
-        # TODO: handle validation logic and update train stats
         do_validation = False
         if val_data:
             do_validation = True
@@ -135,11 +154,11 @@ class Estimator(object):
             for handler in event_handlers:
                 handler.epoch_begin()
 
-            for metric in self.metrics + self.loss_metrics:
+            for metric in self.train_metrics + self.train_loss_metrics:
                 metric.reset()
 
             for i, batch in enumerate(train_data):
-                data, label = self._batch_fn(batch, self.ctx)
+                data, label = self._batch_fn(batch)
 
                 # batch begin
                 for handler in event_handlers:
@@ -155,11 +174,11 @@ class Estimator(object):
                     for l in loss:
                         l.backward()
 
-                # update metrics
-                for metric in self.metrics:
+                # update train metrics
+                for metric in self.train_metrics:
                     metric.update(label, pred)
                     self.train_stats['batch_' + metric.name] = metric.get()[1]
-                for loss, loss_metric, in zip(losses, self.loss_metrics):
+                for loss, loss_metric, in zip(losses, self.train_loss_metrics):
                     loss_metric.update(0, [l for l in loss])
                     self.train_stats['batch_' + loss_metric.name] = loss_metric.get()[1]
 
@@ -172,11 +191,15 @@ class Estimator(object):
                 for handler in event_handlers:
                     handler.batch_end()
 
-            for metric in self.metrics + self.loss_metrics:
+            # do validation
+            if do_validation:
+                self._test(val_data)
+
+            for metric in self.train_metrics + self.train_loss_metrics:
                 self.train_stats['train_' + metric.name].append(metric.get()[1])
             # epoch end
             for handler in event_handlers:
-                handler.epoch_end()
+                handler.epoch_end(do_validation)
 
         # train end
         for handler in event_handlers:

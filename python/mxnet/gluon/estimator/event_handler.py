@@ -89,13 +89,17 @@ class LoggingHandler(EventHandler):
     def epoch_begin(self):
         self.epoch_start = time.time()
 
-    def epoch_end(self):
+    def epoch_end(self, do_validation=False):
         epoch_time = time.time() - self.epoch_start
         epoch = self._estimator.train_stats['epochs'][-1]
         msg = 'Epoch %d finished in %.3fs: ' % (epoch, epoch_time)
         for key in self._estimator.train_stats.keys():
-            if key.startswith('train_') or key.startswith('test_'):
-                msg += key + ': ' + '%.4f ' % self._estimator.train_stats[key][epoch]
+            if do_validation:
+                if key.startswith('train_') or key.startswith('test_'):
+                    msg += key + ': ' + '%.4f ' % self._estimator.train_stats[key][epoch]
+            else:
+                if key.startswith('train_'):
+                    msg += key + ': ' + '%.4f ' % self._estimator.train_stats[key][epoch]
         self.logger.info(msg)
 
 
