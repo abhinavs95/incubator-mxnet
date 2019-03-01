@@ -105,10 +105,10 @@ def main():
     acc = mx.metric.Accuracy()
 
     net.hybridize()
-    net.initialize(ctx=context)
+    net.initialize(mx.init.MSRAPrelu(), ctx=context)
     trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': lr})
     est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer, ctx=context)
-    est.fit(train_data=train_data, epochs=num_epochs, batch_size=batch_size, event_handlers=[event_handler.LoggingHandler(est, 'alexnet_log', 'alexnet_training_log')])
+    est.fit(train_data=train_data, val_data=test_data, epochs=num_epochs, batch_size=batch_size, event_handlers=[event_handler.LoggingHandler(est, 'alexnet_log', 'alexnet_training_log')])
 
 
 if __name__ == '__main__':
