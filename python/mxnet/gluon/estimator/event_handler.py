@@ -63,7 +63,7 @@ class LoggingHandler(EventHandler):
         if file_name or file_location:
             file_name = file_name or log_name or 'estimator_log'
             file_location = file_location or './'
-            filehandler = logging.FileHandler(os.path.join(file_location, file_name))
+            filehandler = logging.FileHandler(os.path.join(file_location, file_name), mode='w+')
             self.logger.addHandler(filehandler)
 
     def train_begin(self):
