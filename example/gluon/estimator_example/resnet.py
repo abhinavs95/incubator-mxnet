@@ -1,14 +1,17 @@
+import os
+import sys
+import argparse
 import mxnet as mx
 from mxnet import gluon
 from mxnet.gluon import nn, data
 from mxnet.gluon.block import HybridBlock
 from mxnet.gluon.estimator import estimator, event_handler
-import os
-import sys
-import argparse
 
 # CLI
 def parse_args():
+    '''
+    Command Line Interface
+    '''
     parser = argparse.ArgumentParser(description='Train ResNet18 on Fashion-MNIST')
     parser.add_argument('--batch-size', type=int, default=128,
                         help='training batch size per device (CPU/GPU).')
@@ -30,7 +33,6 @@ def parse_args():
 def _conv3x3(channels, stride, in_channels):
     return nn.Conv2D(channels, kernel_size=3, strides=stride, padding=1,
                      use_bias=False, in_channels=in_channels)
-
 
 # Blocks
 class BasicBlockV1(HybridBlock):
@@ -454,7 +456,11 @@ models = {'resnet18_v1': resnet18_v1,
           'resnet152_v2': resnet152_v2
           }
 
-def load_data_fashion_mnist(batch_size, resize=None, num_workers=None, root=os.path.join('~', '.mxnet', 'datasets', 'fashion-mnist')):
+def load_data_mnist(batch_size, resize=None, num_workers=None,
+                            root=os.path.join('~', '.mxnet', 'datasets', 'fashion-mnist')):
+    '''
+    Load MNIST dataset
+    '''
     root = os.path.expanduser(root)  # Expand the user path '~'.
     transformer = []
     if resize:
@@ -494,15 +500,24 @@ def main():
     net = models[model_name](**kwargs)
 
 
-    train_data, test_data = load_data_fashion_mnist(batch_size, resize=input_size, num_workers=num_workers)
+    train_data, test_data = load_data_mnist(batch_size, resize=input_size,
+                                                    num_workers=num_workers)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
     acc = mx.metric.Accuracy()
 
     net.hybridize()
     net.initialize(mx.init.MSRAPrelu(), ctx=context)
     trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': lr})
-    est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer, ctx=context)
-    est.fit(train_data=train_data, val_data=test_data, epochs=num_epochs, batch_size=batch_size, event_handlers=[event_handler.LoggingHandler(est, 'resnet_log', 'resnet_training_log')])
+    est = estimator.Estimator(net=net,
+                              loss=loss,
+                              metrics=acc,
+                              trainers=trainer,
+                              ctx=context)
+    est.fit(train_data=train_data,
+            val_data=test_data,
+            epochs=num_epochs,
+            batch_size=batch_size,
+            event_handlers=[event_handler.LoggingHandler(est, 'resnet_log', 'resnet_training_log')])
 
 
 if __name__ == '__main__':

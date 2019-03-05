@@ -1,14 +1,17 @@
+import os
+import sys
+import argparse
 import mxnet as mx
 from mxnet import gluon
 from mxnet.gluon import nn, data
 from mxnet.gluon.block import HybridBlock
 from mxnet.gluon.estimator import estimator, event_handler
-import os
-import sys
-import argparse
 
 # CLI
 def parse_args():
+    '''
+    Command Line Interface
+    '''
     parser = argparse.ArgumentParser(description='Train ResNet18 on Fashion-MNIST')
     parser.add_argument('--batch-size', type=int, default=128,
                         help='training batch size per device (CPU/GPU).')
@@ -63,7 +66,11 @@ class AlexNet(HybridBlock):
         x = self.output(x)
         return x
 
-def load_data_fashion_mnist(batch_size, resize=None, num_workers=None, root=os.path.join('~', '.mxnet', 'datasets', 'fashion-mnist')):
+def load_data_mnist(batch_size, resize=None, num_workers=None,
+                    root=os.path.join('~', '.mxnet', 'datasets', 'fashion-mnist')):
+    '''
+    Load MNIST dataset
+    '''
     root = os.path.expanduser(root)  # Expand the user path '~'.
     transformer = []
     if resize:
@@ -100,15 +107,24 @@ def main():
 
     net = AlexNet(classes=10)
 
-    train_data, test_data = load_data_fashion_mnist(batch_size, resize=input_size, num_workers=num_workers)
+    train_data, test_data = load_data_mnist(batch_size, resize=input_size,
+                                            num_workers=num_workers)
     loss = gluon.loss.SoftmaxCrossEntropyLoss()
     acc = mx.metric.Accuracy()
 
     net.hybridize()
     net.initialize(mx.init.MSRAPrelu(), ctx=context)
     trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': lr})
-    est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer, ctx=context)
-    est.fit(train_data=train_data, val_data=test_data, epochs=num_epochs, batch_size=batch_size, event_handlers=[event_handler.LoggingHandler(est, 'alexnet_log', 'alexnet_training_log')])
+    est = estimator.Estimator(net=net,
+                              loss=loss,
+                              metrics=acc,
+                              trainers=trainer,
+                              ctx=context)
+    est.fit(train_data=train_data,
+            val_data=test_data,
+            epochs=num_epochs,
+            batch_size=batch_size,
+            event_handlers=[event_handler.LoggingHandler(est, 'alexnet_log', 'alexnet_log')])
 
 
 if __name__ == '__main__':

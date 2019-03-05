@@ -1,15 +1,18 @@
-import mxnet as mx
-from mxnet import gluon, image, init, nd
-from mxnet.gluon import data as gdata, model_zoo, nn
-from mxnet.gluon.estimator import estimator, event_handler
+import tarfile
 import os
 import sys
 import argparse
 import numpy as np
-import tarfile
+import mxnet as mx
+from mxnet import gluon, image, init, nd
+from mxnet.gluon import data as gdata, model_zoo, nn
+from mxnet.gluon.estimator import estimator, event_handler
 
 # CLI
 def parse_args():
+    '''
+    Command Line Interface
+    '''
     parser = argparse.ArgumentParser(description='Train ResNet18 on Fashion-MNIST')
     parser.add_argument('--batch-size', type=int, default=32,
                         help='training batch size per device (CPU/GPU).')
@@ -28,16 +31,23 @@ def parse_args():
 
 
 def FCN(num_classes=21, ctx=None):
+    '''
+    FCN model for semantic segmentation
+    '''
     pretrained_net = model_zoo.vision.resnet18_v2(pretrained=True, ctx=ctx)
 
     net = nn.HybridSequential()
     for layer in pretrained_net.features[:-2]:
         net.add(layer)
 
-    net.add(nn.Conv2D(num_classes, kernel_size=1), nn.Conv2DTranspose(num_classes, kernel_size=64, padding=16, strides=32))
+    net.add(nn.Conv2D(num_classes, kernel_size=1),
+            nn.Conv2DTranspose(num_classes, kernel_size=64, padding=16, strides=32))
     return net
 
 def bilinear_kernel(in_channels, out_channels, kernel_size):
+    '''
+    Bilinear interpolation using transposed convolution
+    '''
     factor = (kernel_size + 1) // 2
     if kernel_size % 2 == 1:
         center = factor - 1
@@ -129,6 +139,9 @@ class VOCSegDataset(gdata.Dataset):
         return len(self.data)
 
 def load_data_pascal_voc(batch_size, crop=None, num_workers=None):
+    '''
+    Load Pascal VOC dataset
+    '''
     crop_size, batch_size, colormap2label = crop, batch_size, nd.zeros(256 ** 3)
     for i, cm in enumerate(VOC_COLORMAP):
         colormap2label[(cm[0] * 256 + cm[1]) * 256 + cm[2]] = i
@@ -166,7 +179,8 @@ def main():
     num_classes = 21
     net = FCN(num_classes, ctx=context)
 
-    train_data, test_data = load_data_pascal_voc(batch_size, crop=input_size, num_workers=num_workers)
+    train_data, test_data = load_data_pascal_voc(batch_size, crop=input_size,
+                                                 num_workers=num_workers)
     loss = gluon.loss.SoftmaxCrossEntropyLoss(axis=1)
     acc = mx.metric.Accuracy()
 
@@ -174,8 +188,16 @@ def main():
     net[-1].initialize(init.Constant(bilinear_kernel(num_classes, num_classes, 64)), ctx=context)
     net[-2].initialize(init=init.Xavier(), ctx=context)
     trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': lr, 'wd': 1e-3})
-    est = estimator.Estimator(net=net, loss=loss, metrics=acc, trainers=trainer, ctx=context)
-    est.fit(train_data=train_data, val_data=test_data, epochs=num_epochs, batch_size=batch_size, event_handlers=[event_handler.LoggingHandler(est, 'fcn_log', 'fcn_training_log')])
+    est = estimator.Estimator(net=net,
+                              loss=loss,
+                              metrics=acc,
+                              trainers=trainer,
+                              ctx=context)
+    est.fit(train_data=train_data,
+            val_data=test_data,
+            epochs=num_epochs,
+            batch_size=batch_size,
+            event_handlers=[event_handler.LoggingHandler(est, 'fcn_log', 'fcn_training_log')])
 
 
 if __name__ == '__main__':
